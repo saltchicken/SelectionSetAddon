@@ -27,6 +27,58 @@ class SelectionObserver:
         self.update_callback()
 
 
+class CollapsibleSection(QtWidgets.QWidget):
+    """A professional collapsible widget using standard Qt arrows."""
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.layout = QtWidgets.QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        # The header toggle button
+        self.toggle_button = QtWidgets.QToolButton(self)
+        self.toggle_button.setText(title)
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(True)
+        self.toggle_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.toggle_button.setArrowType(QtCore.Qt.DownArrow)
+        
+        # Make the button span the entire width
+        self.toggle_button.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Fixed)
+        self.toggle_button.setStyleSheet("""
+            QToolButton {
+                border: none;
+                font-weight: bold;
+                padding: 6px;
+                text-align: left;
+                background-color: transparent;
+            }
+            QToolButton:hover {
+                background-color: rgba(128, 128, 128, 0.1);
+                border-radius: 4px;
+            }
+        """)
+
+        # The container for the actual content
+        self.content_area = QtWidgets.QWidget(self)
+        self.content_layout = QtWidgets.QVBoxLayout(self.content_area)
+        self.content_layout.setContentsMargins(8, 4, 8, 8)
+        self.content_layout.setSpacing(8)
+
+        self.layout.addWidget(self.toggle_button)
+        self.layout.addWidget(self.content_area)
+
+        self.toggle_button.toggled.connect(self.on_toggled)
+
+    def on_toggled(self, checked):
+        # Swap the arrow direction and toggle content visibility
+        self.toggle_button.setArrowType(QtCore.Qt.DownArrow if checked else QtCore.Qt.RightArrow)
+        self.content_area.setVisible(checked)
+
+    def addWidget(self, widget):
+        self.content_layout.addWidget(widget)
+
+
 class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
     def __init__(self):
@@ -67,47 +119,25 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.setWidget(self.main_widget)
 
         # --- SECTION 1: CURRENT SELECTION ---
-        self.group_current = QtWidgets.QGroupBox("Current Selection")
-
-        # Make the header clickable (toggleable) and default to shown
-        self.group_current.setCheckable(True)
-        self.group_current.setChecked(True)
-
-        self.layout_current = QtWidgets.QVBoxLayout(self.group_current)
-        self.layout_current.setContentsMargins(8, 12, 8, 8)
-        self.layout_current.setSpacing(8)
-
+        self.group_current = CollapsibleSection("Current Selection")
+        
         self.current_tree = QtWidgets.QTreeWidget()
         self.current_tree.setHeaderHidden(True)
-        self.layout_current.addWidget(self.current_tree)
-
+        self.group_current.addWidget(self.current_tree)
+        
         self.main_layout.addWidget(self.group_current)
 
-        # Connect the header toggle to hide/show the tree widget
-        self.group_current.toggled.connect(self.current_tree.setVisible)
-
         # --- SECTION 2: SAVED GROUPS ---
-        self.group_saved = QtWidgets.QGroupBox("Saved Groups")
-
-        # Make the header clickable (toggleable) and default to shown (checked)
-        self.group_saved.setCheckable(True)
-        self.group_saved.setChecked(True)
-
-        self.layout_saved = QtWidgets.QVBoxLayout(self.group_saved)
-        self.layout_saved.setContentsMargins(8, 12, 8, 8)
-        self.layout_saved.setSpacing(8)
-
+        self.group_saved = CollapsibleSection("Saved Groups")
+        
         self.group_list = QtWidgets.QListWidget()
-        self.layout_saved.addWidget(self.group_list)
-
-        self.main_layout.addWidget(self.group_saved)
+        self.group_saved.addWidget(self.group_list)
 
         # --- SECTION 3: ACTION BUTTONS ---
-        # Wrap the layout in a QWidget so we can toggle its visibility
+        # Wrap the layout in a QWidget so we can add it to the collapsible section
         self.buttons_widget = QtWidgets.QWidget()
         self.buttons_layout = QtWidgets.QHBoxLayout(self.buttons_widget)
-        self.buttons_layout.setContentsMargins(0, 0, 0,
-                                               0)  # No extra margin needed
+        self.buttons_layout.setContentsMargins(0, 0, 0, 0)
 
         self.btn_prev = QtWidgets.QPushButton("Restore Prev")
         self.btn_prev.setEnabled(False)
@@ -126,12 +156,13 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.btn_delete.clicked.connect(self.delete_group)
         self.buttons_layout.addWidget(self.btn_delete)
 
-        # Add the unified button widget to the very bottom of the dock
-        self.main_layout.addWidget(self.buttons_widget)
+        # Add the unified button widget to the Saved Groups section
+        self.group_saved.addWidget(self.buttons_widget)
+        
+        self.main_layout.addWidget(self.group_saved)
 
-        # Connect the header click event to hide/show both the list and the buttons widget
-        self.group_saved.toggled.connect(self.group_list.setVisible)
-        self.group_saved.toggled.connect(self.buttons_widget.setVisible)
+        # Push everything to the top when space allows
+        self.main_layout.addStretch()
 
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_view)
