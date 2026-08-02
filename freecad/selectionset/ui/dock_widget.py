@@ -85,17 +85,23 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.group_list = QtWidgets.QListWidget()
         self.layout_saved.addWidget(self.group_list)
 
+        # Create a horizontal layout for the buttons
+        self.buttons_layout = QtWidgets.QHBoxLayout()
+
         self.btn_save = QtWidgets.QPushButton("Save Current Selection")
         self.btn_save.clicked.connect(self.save_group)
-        self.layout_saved.addWidget(self.btn_save)
+        self.buttons_layout.addWidget(self.btn_save)
 
         self.btn_restore = QtWidgets.QPushButton("Restore Selection")
         self.btn_restore.clicked.connect(self.restore_group)
-        self.layout_saved.addWidget(self.btn_restore)
+        self.buttons_layout.addWidget(self.btn_restore)
 
         self.btn_delete = QtWidgets.QPushButton("Delete Group")
         self.btn_delete.clicked.connect(self.delete_group)
-        self.layout_saved.addWidget(self.btn_delete)
+        self.buttons_layout.addWidget(self.btn_delete)
+
+        # Add the horizontal layout to the tab's main layout
+        self.layout_saved.addLayout(self.buttons_layout)
 
         self.tabs.addTab(self.tab_saved, "Saved Groups")
 
