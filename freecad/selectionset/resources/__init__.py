@@ -1,7 +1,9 @@
 import importlib
 import importlib.resources
 from typing import ClassVar
+
 import FreeCAD as App
+
 
 class Resources:
     """Addon SelectionSet resource manager"""

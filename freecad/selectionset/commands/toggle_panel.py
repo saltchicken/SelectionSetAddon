@@ -2,9 +2,12 @@ import FreeCAD as App
 import FreeCADGui as Gui
 
 try:
-    from PySide6 import QtCore, QtWidgets
+    from PySide6 import QtCore
+    from PySide6 import QtWidgets
 except ImportError:
-    from PySide2 import QtCore, QtWidgets
+    from PySide2 import QtCore
+    from PySide2 import QtWidgets
+
 
 class ToggleSelectionPanelCommand:
     Name = "SelectionSet_Toggle"
@@ -18,9 +21,10 @@ class ToggleSelectionPanelCommand:
 
     def Activated(self):
         main_window = Gui.getMainWindow()
-        
+
         # Simply toggle visibility
-        for child in main_window.findChildren(QtWidgets.QDockWidget, "AdvancedSelectionDock"):
+        for child in main_window.findChildren(QtWidgets.QDockWidget,
+                                              "AdvancedSelectionDock"):
             if child.isVisible():
                 child.hide()
             else:
