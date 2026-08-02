@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+    <name>SelectionSet</name>
+    <description>Advanced selection grouping and management dock widget.</description>
+    <version>1.0.0</version>
+    <date>2026-08-02</date>
+    <freecadmin>0.21</freecadmin>
+    
+    <maintainer email="your@email.com">Your Name</maintainer>
+    <license file="LICENSE">LGPL-2.1-or-later</license>
+    
+    <icon>freecad/selectionset/resources/icons/SelectionSet.svg</icon>
+</package>

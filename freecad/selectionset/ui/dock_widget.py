@@ -1,43 +1,36 @@
 import FreeCAD as App
 import FreeCADGui as Gui
-from PySide import QtCore, QtWidgets
 
-# ---------------------------------------------------------
-# 1. Observer to watch for selection changes in real-time
-# ---------------------------------------------------------
+try:
+    from PySide6 import QtCore, QtWidgets
+except ImportError:
+    from PySide2 import QtCore, QtWidgets
+
 class SelectionObserver:
     def __init__(self, update_callback):
         self.update_callback = update_callback
 
-    # Catch all selection events and trigger our UI update.
-    # Using *args makes this safe against any future FreeCAD API changes.
     def addSelection(self, *args): self.update_callback()
     def removeSelection(self, *args): self.update_callback()
     def setSelection(self, *args): self.update_callback()
     def clearSelection(self, *args): self.update_callback()
 
 
-# ---------------------------------------------------------
-# 2. Main Dock Widget UI
-# ---------------------------------------------------------
 class AdvancedSelectionDock(QtWidgets.QDockWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Advanced Selection")
-        self.setObjectName("AdvancedSelectionDock") # Unique ID for window management
+        self.setObjectName("AdvancedSelectionDock")
         self.saved_groups = {} 
 
-        # Setup Tab Container
         self.tabs = QtWidgets.QTabWidget()
         self.setWidget(self.tabs)
 
         # === TAB 1: CURRENT SELECTION ===
         self.tab_current = QtWidgets.QWidget()
         self.layout_current = QtWidgets.QVBoxLayout(self.tab_current)
-        
         self.current_list = QtWidgets.QListWidget()
         self.layout_current.addWidget(self.current_list)
-        
         self.tabs.addTab(self.tab_current, "Current Selection")
 
         # === TAB 2: SAVED GROUPS ===
@@ -64,26 +57,15 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_tab)
         Gui.Selection.addObserver(self.observer)
-        
-        # Populate the current tab immediately in case things are already selected
         self.update_current_tab()
 
-    # ---------------------------------------------------------
-    # UI Logic & Methods
-    # ---------------------------------------------------------
     def update_current_tab(self):
-        """Refreshes Tab 1 whenever you click something in FreeCAD."""
         self.current_list.clear()
         sel_ex = Gui.Selection.getSelectionEx()
-        
         for sel in sel_ex:
-            doc = sel.DocumentName
-            obj = sel.ObjectName
-            subs = sel.SubElementNames
-            
+            doc, obj, subs = sel.DocumentName, sel.ObjectName, sel.SubElementNames
             if subs:
                 for sub in subs:
-                    # Formats it nicely: Document -> Object -> Face/Edge
                     self.current_list.addItem(f"{doc} \u25B8 {obj} \u25B8 {sub}")
             else:
                 self.current_list.addItem(f"{doc} \u25B8 {obj}")
@@ -97,20 +79,16 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         name, ok = QtWidgets.QInputDialog.getText(self, "Save Selection", "Enter group name:")
         if ok and name:
             group_data = [(sel.DocumentName, sel.ObjectName, sel.SubElementNames) for sel in sel_ex]
-            
             if name not in self.saved_groups:
                 self.group_list.addItem(name)
-            
             self.saved_groups[name] = group_data
 
     def restore_group(self):
         current_item = self.group_list.currentItem()
-        if not current_item:
-            return
+        if not current_item: return
         
         name = current_item.text()
         group_data = self.saved_groups.get(name, [])
-
         Gui.Selection.clearSelection()
         
         for doc_name, obj_name, sub_names in group_data:
@@ -122,32 +100,13 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
     def delete_group(self):
         current_item = self.group_list.currentItem()
-        if not current_item:
-            return
+        if not current_item: return
         
         name = current_item.text()
         if name in self.saved_groups:
             del self.saved_groups[name]
-        
         self.group_list.takeItem(self.group_list.row(current_item))
 
     def closeEvent(self, event):
-        """Crucial: Removes the observer when closing the panel to prevent FreeCAD from crashing."""
         Gui.Selection.removeObserver(self.observer)
         super().closeEvent(event)
-
-
-# ---------------------------------------------------------
-# 3. Execution & Cleanup
-# ---------------------------------------------------------
-def run_macro():
-    main_window = Gui.getMainWindow()
-    
-    # Close any existing instances of this custom widget before opening a new one
-    for child in main_window.findChildren(QtWidgets.QDockWidget, "AdvancedSelectionDock"):
-        child.close() 
-        
-    dock = AdvancedSelectionDock()
-    main_window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
-
-run_macro()

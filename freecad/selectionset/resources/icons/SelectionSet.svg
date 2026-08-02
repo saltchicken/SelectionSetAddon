@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background -->
+  <rect width="100" height="100" rx="20" fill="#2d3436"/>
+
+  <!-- Top-Left Icon (Represents the Saved Groups Dock Widget / List) -->
+  <rect x="8" y="8" width="28" height="24" rx="4" fill="#1e272e" stroke="#747d8c" stroke-width="2"/>
+  <rect x="13" y="14" width="18" height="3" rx="1.5" fill="#00cec9"/>
+  <rect x="13" y="21" width="12" height="3" rx="1.5" fill="#57606f"/>
+  <rect x="13" y="28" width="15" height="3" rx="1.5" fill="#57606f"/>
+
+  <!-- Selection Marquee (Dashed bounding box grouping the object) -->
+  <rect x="29" y="22" width="68" height="76" rx="6" fill="none" stroke="#747d8c" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- 3D Object: Right Face (Unselected) -->
+  <polygon points="63,60 89,45 89,75 63,90" fill="#1e272e" stroke="#57606f" stroke-width="2" stroke-linejoin="round"/>
+  
+  <!-- 3D Object: Top Face (Unselected base) -->
+  <polygon points="63,60 37,45 63,30 89,45" fill="#1e272e" stroke="#57606f" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- 3D Object: Left Face (Selected Group Member) -->
+  <polygon points="63,60 63,90 37,75 37,45" fill="#2b4749" stroke="#00cec9" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- 3D Object: Top-Right Edge (Selected Sub-Element) -->
+  <line x1="63" y1="30" x2="89" y2="45" stroke="#00cec9" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Interactive Nodes (Emphasizing the selected vertices) -->
+  <circle cx="37" cy="45" r="2.5" fill="#ffffff"/>
+  <circle cx="37" cy="75" r="2.5" fill="#ffffff"/>
+  <circle cx="63" cy="60" r="2.5" fill="#ffffff"/>
+  <circle cx="63" cy="90" r="2.5" fill="#ffffff"/>
+  <circle cx="63" cy="30" r="2.5" fill="#ffffff"/>
+  <circle cx="89" cy="45" r="2.5" fill="#ffffff"/>
+
+  <!-- Mouse Cursor (Emphasizing the act of selecting) -->
+  <path d="M 42,55 L 42,73 L 47,68 L 51,77 L 54,75 L 50,66 L 56,66 Z" fill="#ffffff" stroke="#2d3436" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>
