@@ -60,6 +60,10 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.update_current_tab()
 
     def update_current_tab(self):
+        """Refreshes Tab 1 whenever you click something in FreeCAD, if visible."""
+        if not self.isVisible():
+            return
+            
         self.current_list.clear()
         sel_ex = Gui.Selection.getSelectionEx()
         for sel in sel_ex:
@@ -69,6 +73,11 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
                     self.current_list.addItem(f"{doc} \u25B8 {obj} \u25B8 {sub}")
             else:
                 self.current_list.addItem(f"{doc} \u25B8 {obj}")
+
+    def showEvent(self, event):
+        """Forces the current selection tab to update the moment the panel is shown."""
+        self.update_current_tab()
+        super().showEvent(event)
 
     def save_group(self):
         sel_ex = Gui.Selection.getSelectionEx()
@@ -85,7 +94,8 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
     def restore_group(self):
         current_item = self.group_list.currentItem()
-        if not current_item: return
+        if not current_item: 
+            return
         
         name = current_item.text()
         group_data = self.saved_groups.get(name, [])
@@ -100,13 +110,10 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
     def delete_group(self):
         current_item = self.group_list.currentItem()
-        if not current_item: return
+        if not current_item: 
+            return
         
         name = current_item.text()
         if name in self.saved_groups:
             del self.saved_groups[name]
         self.group_list.takeItem(self.group_list.row(current_item))
-
-    def closeEvent(self, event):
-        Gui.Selection.removeObserver(self.observer)
-        super().closeEvent(event)

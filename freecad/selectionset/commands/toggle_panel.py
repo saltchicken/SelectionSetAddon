@@ -6,8 +6,6 @@ try:
 except ImportError:
     from PySide2 import QtCore, QtWidgets
 
-from freecad.selectionset.ui.dock_widget import AdvancedSelectionDock
-
 class ToggleSelectionPanelCommand:
     Name = "SelectionSet_Toggle"
 
@@ -21,7 +19,7 @@ class ToggleSelectionPanelCommand:
     def Activated(self):
         main_window = Gui.getMainWindow()
         
-        # Check if it already exists to toggle visibility
+        # Simply toggle visibility
         for child in main_window.findChildren(QtWidgets.QDockWidget, "AdvancedSelectionDock"):
             if child.isVisible():
                 child.hide()
@@ -29,13 +27,9 @@ class ToggleSelectionPanelCommand:
                 child.show()
                 child.raise_()
             return
-            
-        # If it doesn't exist, create it
-        dock = AdvancedSelectionDock()
-        main_window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
 
     def IsActive(self):
-        return True # Can be opened even without an active document
+        return True
 
     @classmethod
     def Install(cls):
