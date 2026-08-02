@@ -34,13 +34,38 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.debounce_timer.timeout.connect(self._handle_selection_settled)
 
         self.tabs = QtWidgets.QTabWidget()
+        
+        # Move the tabs to the bottom of the widget
+        self.tabs.setTabPosition(QtWidgets.QTabWidget.South)
+        
+        # Apply structural styling (padding, margins, radius) without hardcoding colors
+        # so it inherently respects FreeCAD's active dark/light themes.
+        self.tabs.setStyleSheet("""
+            QTabBar::tab {
+                padding: 8px 16px;
+                min-width: 100px;
+                font-weight: bold;
+            }
+            QPushButton {
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QListWidget {
+                border-radius: 4px;
+                padding: 4px;
+                margin-top: 4px;
+            }
+        """)
+        
         self.setWidget(self.tabs)
 
         # === TAB 1: CURRENT SELECTION ===
         self.tab_current = QtWidgets.QWidget()
         self.layout_current = QtWidgets.QVBoxLayout(self.tab_current)
+        # Add consistent margins and spacing
+        self.layout_current.setContentsMargins(10, 10, 10, 10)
+        self.layout_current.setSpacing(8)
         
-        # Added Restore Previous button
         self.btn_prev = QtWidgets.QPushButton("Restore Previous Selection")
         self.btn_prev.setEnabled(False)
         self.btn_prev.clicked.connect(self.restore_previous_selection)
@@ -53,6 +78,9 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # === TAB 2: SAVED GROUPS ===
         self.tab_saved = QtWidgets.QWidget()
         self.layout_saved = QtWidgets.QVBoxLayout(self.tab_saved)
+        # Add consistent margins and spacing
+        self.layout_saved.setContentsMargins(10, 10, 10, 10)
+        self.layout_saved.setSpacing(8)
 
         self.group_list = QtWidgets.QListWidget()
         self.layout_saved.addWidget(self.group_list)
