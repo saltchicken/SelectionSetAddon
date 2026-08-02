@@ -1,0 +1,86 @@
+import FreeCAD as App
+import FreeCADGui as Gui
+from PySide import QtCore, QtWidgets
+
+class AdvancedSelectionView(QtWidgets.QDockWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Advanced Selection View")
+        self.saved_groups = {} # Stores our selection data in memory
+
+        # Main widget and layout
+        self.main_widget = QtWidgets.QWidget()
+        self.layout = QtWidgets.QVBoxLayout(self.main_widget)
+
+        # List to show saved groups
+        self.group_list = QtWidgets.QListWidget()
+        self.layout.addWidget(self.group_list)
+
+        # Buttons
+        self.btn_save = QtWidgets.QPushButton("Save Current Selection")
+        self.btn_save.clicked.connect(self.save_group)
+        self.layout.addWidget(self.btn_save)
+
+        self.btn_restore = QtWidgets.QPushButton("Restore Selection")
+        self.btn_restore.clicked.connect(self.restore_group)
+        self.layout.addWidget(self.btn_restore)
+
+        self.btn_delete = QtWidgets.QPushButton("Delete Group")
+        self.btn_delete.clicked.connect(self.delete_group)
+        self.layout.addWidget(self.btn_delete)
+
+        self.setWidget(self.main_widget)
+
+    def save_group(self):
+        # getSelectionEx captures objects AND sub-objects (faces, edges, vertices)
+        sel_ex = Gui.Selection.getSelectionEx()
+        if not sel_ex:
+            QtWidgets.QMessageBox.warning(self, "Empty Selection", "Select something first.")
+            return
+
+        name, ok = QtWidgets.QInputDialog.getText(self, "Save Selection", "Enter group name:")
+        if ok and name:
+            group_data = [(sel.DocumentName, sel.ObjectName, sel.SubElementNames) for sel in sel_ex]
+            
+            # Prevent duplicate list items if overwriting an existing name
+            if name not in self.saved_groups:
+                self.group_list.addItem(name)
+            
+            self.saved_groups[name] = group_data
+
+    def restore_group(self):
+        current_item = self.group_list.currentItem()
+        if not current_item:
+            return
+        
+        name = current_item.text()
+        group_data = self.saved_groups.get(name, [])
+
+        # Clear current selection before restoring
+        Gui.Selection.clearSelection()
+        
+        for doc_name, obj_name, sub_names in group_data:
+            if sub_names:
+                for sub in sub_names:
+                    Gui.Selection.addSelection(doc_name, obj_name, sub)
+            else:
+                Gui.Selection.addSelection(doc_name, obj_name)
+
+    def delete_group(self):
+        current_item = self.group_list.currentItem()
+        if not current_item:
+            return
+        
+        name = current_item.text()
+        if name in self.saved_groups:
+            del self.saved_groups[name]
+        
+        self.group_list.takeItem(self.group_list.row(current_item))
+
+# Inject the custom UI into FreeCAD's main window
+def run_macro():
+    main_window = Gui.getMainWindow()
+    dock = AdvancedSelectionView()
+    main_window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+
+run_macro()
