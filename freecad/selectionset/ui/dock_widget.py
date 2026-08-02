@@ -50,15 +50,6 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
                 padding: 4px;
                 margin-top: 4px;
             }
-            QGroupBox {
-                font-weight: bold;
-                margin-top: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 7px;
-                padding: 0px 5px 0px 5px;
-            }
         """)
         
         self.setWidget(self.main_widget)
@@ -77,6 +68,11 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
         # --- SECTION 2: SAVED GROUPS ---
         self.group_saved = QtWidgets.QGroupBox("Saved Groups")
+        
+        # Make the header clickable (toggleable) and default to shown (checked)
+        self.group_saved.setCheckable(True)
+        self.group_saved.setChecked(True)
+        
         self.layout_saved = QtWidgets.QVBoxLayout(self.group_saved)
         self.layout_saved.setContentsMargins(8, 12, 8, 8)
         self.layout_saved.setSpacing(8)
@@ -87,7 +83,10 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.main_layout.addWidget(self.group_saved)
 
         # --- SECTION 3: ACTION BUTTONS ---
-        self.buttons_layout = QtWidgets.QHBoxLayout()
+        # Wrap the layout in a QWidget so we can toggle its visibility
+        self.buttons_widget = QtWidgets.QWidget()
+        self.buttons_layout = QtWidgets.QHBoxLayout(self.buttons_widget)
+        self.buttons_layout.setContentsMargins(0, 0, 0, 0) # No extra margin needed
 
         self.btn_prev = QtWidgets.QPushButton("Restore Prev")
         self.btn_prev.setEnabled(False)
@@ -106,8 +105,12 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.btn_delete.clicked.connect(self.delete_group)
         self.buttons_layout.addWidget(self.btn_delete)
         
-        # Add the unified button row to the very bottom of the dock
-        self.main_layout.addLayout(self.buttons_layout)
+        # Add the unified button widget to the very bottom of the dock
+        self.main_layout.addWidget(self.buttons_widget)
+
+        # Connect the header click event to hide/show both the list and the buttons widget
+        self.group_saved.toggled.connect(self.group_list.setVisible)
+        self.group_saved.toggled.connect(self.buttons_widget.setVisible)
 
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_view)
