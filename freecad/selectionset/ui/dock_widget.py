@@ -22,6 +22,16 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.setWindowTitle("Advanced Selection")
         self.setObjectName("AdvancedSelectionDock")
         self.saved_groups = {} 
+        
+        # State tracking for "Previous Selection"
+        self.previous_selection = []
+        self.current_selection_state = []
+        self._is_restoring = False
+        
+        # Timer to debounce rapid FreeCAD selection events (like clear -> add)
+        self.debounce_timer = QtCore.QTimer()
+        self.debounce_timer.setSingleShot(True)
+        self.debounce_timer.timeout.connect(self._handle_selection_settled)
 
         self.tabs = QtWidgets.QTabWidget()
         self.setWidget(self.tabs)
@@ -29,6 +39,13 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # === TAB 1: CURRENT SELECTION ===
         self.tab_current = QtWidgets.QWidget()
         self.layout_current = QtWidgets.QVBoxLayout(self.tab_current)
+        
+        # Added Restore Previous button
+        self.btn_prev = QtWidgets.QPushButton("Restore Previous Selection")
+        self.btn_prev.setEnabled(False)
+        self.btn_prev.clicked.connect(self.restore_previous_selection)
+        self.layout_current.addWidget(self.btn_prev)
+        
         self.current_list = QtWidgets.QListWidget()
         self.layout_current.addWidget(self.current_list)
         self.tabs.addTab(self.tab_current, "Current Selection")
@@ -57,27 +74,70 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_tab)
         Gui.Selection.addObserver(self.observer)
-        self.update_current_tab()
+        self._handle_selection_settled()
 
     def update_current_tab(self):
-        """Refreshes Tab 1 whenever you click something in FreeCAD, if visible."""
-        if not self.isVisible():
-            return
-            
-        self.current_list.clear()
+        """Triggered by FreeCAD selection events. Debounces rapid changes."""
+        if not self._is_restoring:
+            self.debounce_timer.start(50)  # Wait 50ms for events to settle
+
+    def _handle_selection_settled(self):
+        """Called when selection changes have completed their firing cycle."""
         sel_ex = Gui.Selection.getSelectionEx()
-        for sel in sel_ex:
-            doc, obj, subs = sel.DocumentName, sel.ObjectName, sel.SubElementNames
-            if subs:
-                for sub in subs:
-                    self.current_list.addItem(f"{doc} \u25B8 {obj} \u25B8 {sub}")
+        
+        # Enforce tuple for SubElementNames to ensure exact equality checks work
+        new_state = [(sel.DocumentName, sel.ObjectName, tuple(sel.SubElementNames)) for sel in sel_ex]
+
+        if new_state != self.current_selection_state:
+            # Only save the previous selection if it contained items (prevents losing history on clear)
+            if self.current_selection_state: 
+                self.previous_selection = self.current_selection_state
+            self.current_selection_state = new_state
+
+        if self.isVisible():
+            self._populate_current_list()
+
+    def _populate_current_list(self):
+        """Updates the UI elements for the current selection tab."""
+        self.current_list.clear()
+        for doc_name, obj_name, sub_names in self.current_selection_state:
+            if sub_names:
+                for sub in sub_names:
+                    self.current_list.addItem(f"{doc_name} \u25B8 {obj_name} \u25B8 {sub}")
             else:
-                self.current_list.addItem(f"{doc} \u25B8 {obj}")
+                self.current_list.addItem(f"{doc_name} \u25B8 {obj_name}")
+                
+        self.btn_prev.setEnabled(bool(self.previous_selection))
 
     def showEvent(self, event):
         """Forces the current selection tab to update the moment the panel is shown."""
-        self.update_current_tab()
+        self._populate_current_list()
         super().showEvent(event)
+
+    def restore_previous_selection(self):
+        """Restores the last known valid selection and swaps state to enable toggling."""
+        if not self.previous_selection:
+            return
+            
+        self._is_restoring = True
+        
+        Gui.Selection.clearSelection()
+        for doc_name, obj_name, sub_names in self.previous_selection:
+            if sub_names:
+                for sub in sub_names:
+                    Gui.Selection.addSelection(doc_name, obj_name, sub)
+            else:
+                Gui.Selection.addSelection(doc_name, obj_name)
+                
+        # Swap current and previous states so the user can repeatedly toggle between the two
+        temp = self.current_selection_state
+        self.current_selection_state = self.previous_selection
+        self.previous_selection = temp
+        
+        if self.isVisible():
+            self._populate_current_list()
+            
+        self._is_restoring = False
 
     def save_group(self):
         sel_ex = Gui.Selection.getSelectionEx()
@@ -99,14 +159,19 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         
         name = current_item.text()
         group_data = self.saved_groups.get(name, [])
-        Gui.Selection.clearSelection()
         
+        self._is_restoring = True
+        Gui.Selection.clearSelection()
         for doc_name, obj_name, sub_names in group_data:
             if sub_names:
                 for sub in sub_names:
                     Gui.Selection.addSelection(doc_name, obj_name, sub)
             else:
                 Gui.Selection.addSelection(doc_name, obj_name)
+                
+        # Fire manually since we paused observer callbacks
+        self._is_restoring = False
+        self.update_current_tab()
 
     def delete_group(self):
         current_item = self.group_list.currentItem()
