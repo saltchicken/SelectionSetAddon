@@ -39,7 +39,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.tabs.setTabPosition(QtWidgets.QTabWidget.South)
         
         # Apply structural styling (padding, margins, radius) without hardcoding colors
-        # so it inherently respects FreeCAD's active dark/light themes.
+        # so it inherently respects FreeCAD's active dark/light themes. Added QTreeWidget.
         self.tabs.setStyleSheet("""
             QTabBar::tab {
                 padding: 8px 16px;
@@ -50,7 +50,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
                 padding: 6px 12px;
                 border-radius: 4px;
             }
-            QListWidget {
+            QListWidget, QTreeWidget {
                 border-radius: 4px;
                 padding: 4px;
                 margin-top: 4px;
@@ -62,7 +62,6 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # === TAB 1: CURRENT SELECTION ===
         self.tab_current = QtWidgets.QWidget()
         self.layout_current = QtWidgets.QVBoxLayout(self.tab_current)
-        # Add consistent margins and spacing
         self.layout_current.setContentsMargins(10, 10, 10, 10)
         self.layout_current.setSpacing(8)
         
@@ -71,14 +70,15 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.btn_prev.clicked.connect(self.restore_previous_selection)
         self.layout_current.addWidget(self.btn_prev)
         
-        self.current_list = QtWidgets.QListWidget()
-        self.layout_current.addWidget(self.current_list)
+        # Replaced QListWidget with QTreeWidget
+        self.current_tree = QtWidgets.QTreeWidget()
+        self.current_tree.setHeaderHidden(True)
+        self.layout_current.addWidget(self.current_tree)
         self.tabs.addTab(self.tab_current, "Current Selection")
 
         # === TAB 2: SAVED GROUPS ===
         self.tab_saved = QtWidgets.QWidget()
         self.layout_saved = QtWidgets.QVBoxLayout(self.tab_saved)
-        # Add consistent margins and spacing
         self.layout_saved.setContentsMargins(10, 10, 10, 10)
         self.layout_saved.setSpacing(8)
 
@@ -123,23 +123,43 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
             self.current_selection_state = new_state
 
         if self.isVisible():
-            self._populate_current_list()
+            self._populate_current_tree()
 
-    def _populate_current_list(self):
-        """Updates the UI elements for the current selection tab."""
-        self.current_list.clear()
+    def _populate_current_tree(self):
+        """Updates the UI tree for the current selection tab."""
+        self.current_tree.clear()
+        
+        # Dictionary to track parent nodes so we can group cleanly
+        # Structure: { "DocName": { "item": QTreeWidgetItem, "objs": { "ObjName": QTreeWidgetItem } } }
+        doc_nodes = {}
+        
         for doc_name, obj_name, sub_names in self.current_selection_state:
+            # 1. Get or create Document Node
+            if doc_name not in doc_nodes:
+                doc_item = QtWidgets.QTreeWidgetItem(self.current_tree, [doc_name])
+                doc_item.setExpanded(True)
+                doc_nodes[doc_name] = {'item': doc_item, 'objs': {}}
+            
+            doc_data = doc_nodes[doc_name]
+            
+            # 2. Get or create Object Node
+            if obj_name not in doc_data['objs']:
+                obj_item = QtWidgets.QTreeWidgetItem(doc_data['item'], [obj_name])
+                obj_item.setExpanded(True)
+                doc_data['objs'][obj_name] = obj_item
+                
+            obj_item = doc_data['objs'][obj_name]
+            
+            # 3. Add SubElements (Faces, Edges, Vertices) as leaf nodes
             if sub_names:
                 for sub in sub_names:
-                    self.current_list.addItem(f"{doc_name} \u25B8 {obj_name} \u25B8 {sub}")
-            else:
-                self.current_list.addItem(f"{doc_name} \u25B8 {obj_name}")
-                
+                    QtWidgets.QTreeWidgetItem(obj_item, [sub])
+                    
         self.btn_prev.setEnabled(bool(self.previous_selection))
 
     def showEvent(self, event):
         """Forces the current selection tab to update the moment the panel is shown."""
-        self._populate_current_list()
+        self._populate_current_tree()
         super().showEvent(event)
 
     def restore_previous_selection(self):
@@ -163,7 +183,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.previous_selection = temp
         
         if self.isVisible():
-            self._populate_current_list()
+            self._populate_current_tree()
             
         self._is_restoring = False
 
