@@ -33,19 +33,14 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self._handle_selection_settled)
 
-        self.tabs = QtWidgets.QTabWidget()
-        
-        # Move the tabs to the bottom of the widget
-        self.tabs.setTabPosition(QtWidgets.QTabWidget.South)
-        
-        # Apply structural styling (padding, margins, radius) without hardcoding colors
-        # so it inherently respects FreeCAD's active dark/light themes. Added QTreeWidget.
-        self.tabs.setStyleSheet("""
-            QTabBar::tab {
-                padding: 8px 16px;
-                min-width: 100px;
-                font-weight: bold;
-            }
+        # --- Main Layout Setup ---
+        self.main_widget = QtWidgets.QWidget()
+        self.main_layout = QtWidgets.QVBoxLayout(self.main_widget)
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(12)
+
+        # Apply structural styling
+        self.main_widget.setStyleSheet("""
             QPushButton {
                 padding: 6px 12px;
                 border-radius: 4px;
@@ -55,62 +50,71 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
                 padding: 4px;
                 margin-top: 4px;
             }
+            QGroupBox {
+                font-weight: bold;
+                margin-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 7px;
+                padding: 0px 5px 0px 5px;
+            }
         """)
         
-        self.setWidget(self.tabs)
+        self.setWidget(self.main_widget)
 
-        # === TAB 1: CURRENT SELECTION ===
-        self.tab_current = QtWidgets.QWidget()
-        self.layout_current = QtWidgets.QVBoxLayout(self.tab_current)
-        self.layout_current.setContentsMargins(10, 10, 10, 10)
+        # --- SECTION 1: CURRENT SELECTION ---
+        self.group_current = QtWidgets.QGroupBox("Current Selection")
+        self.layout_current = QtWidgets.QVBoxLayout(self.group_current)
+        self.layout_current.setContentsMargins(8, 12, 8, 8)
         self.layout_current.setSpacing(8)
         
-        self.btn_prev = QtWidgets.QPushButton("Restore Previous Selection")
-        self.btn_prev.setEnabled(False)
-        self.btn_prev.clicked.connect(self.restore_previous_selection)
-        self.layout_current.addWidget(self.btn_prev)
-        
-        # Replaced QListWidget with QTreeWidget
         self.current_tree = QtWidgets.QTreeWidget()
         self.current_tree.setHeaderHidden(True)
         self.layout_current.addWidget(self.current_tree)
-        self.tabs.addTab(self.tab_current, "Current Selection")
+        
+        self.main_layout.addWidget(self.group_current)
 
-        # === TAB 2: SAVED GROUPS ===
-        self.tab_saved = QtWidgets.QWidget()
-        self.layout_saved = QtWidgets.QVBoxLayout(self.tab_saved)
-        self.layout_saved.setContentsMargins(10, 10, 10, 10)
+        # --- SECTION 2: SAVED GROUPS ---
+        self.group_saved = QtWidgets.QGroupBox("Saved Groups")
+        self.layout_saved = QtWidgets.QVBoxLayout(self.group_saved)
+        self.layout_saved.setContentsMargins(8, 12, 8, 8)
         self.layout_saved.setSpacing(8)
 
         self.group_list = QtWidgets.QListWidget()
         self.layout_saved.addWidget(self.group_list)
+        
+        self.main_layout.addWidget(self.group_saved)
 
-        # Create a horizontal layout for the buttons
+        # --- SECTION 3: ACTION BUTTONS ---
         self.buttons_layout = QtWidgets.QHBoxLayout()
 
-        self.btn_save = QtWidgets.QPushButton("Save Current Selection")
+        self.btn_prev = QtWidgets.QPushButton("Restore Prev")
+        self.btn_prev.setEnabled(False)
+        self.btn_prev.clicked.connect(self.restore_previous_selection)
+        self.buttons_layout.addWidget(self.btn_prev)
+
+        self.btn_save = QtWidgets.QPushButton("Save Current")
         self.btn_save.clicked.connect(self.save_group)
         self.buttons_layout.addWidget(self.btn_save)
 
-        self.btn_restore = QtWidgets.QPushButton("Restore Selection")
+        self.btn_restore = QtWidgets.QPushButton("Restore")
         self.btn_restore.clicked.connect(self.restore_group)
         self.buttons_layout.addWidget(self.btn_restore)
 
-        self.btn_delete = QtWidgets.QPushButton("Delete Group")
+        self.btn_delete = QtWidgets.QPushButton("Delete")
         self.btn_delete.clicked.connect(self.delete_group)
         self.buttons_layout.addWidget(self.btn_delete)
-
-        # Add the horizontal layout to the tab's main layout
-        self.layout_saved.addLayout(self.buttons_layout)
-
-        self.tabs.addTab(self.tab_saved, "Saved Groups")
+        
+        # Add the unified button row to the very bottom of the dock
+        self.main_layout.addLayout(self.buttons_layout)
 
         # === INITIALIZE OBSERVER ===
-        self.observer = SelectionObserver(self.update_current_tab)
+        self.observer = SelectionObserver(self.update_current_view)
         Gui.Selection.addObserver(self.observer)
         self._handle_selection_settled()
 
-    def update_current_tab(self):
+    def update_current_view(self):
         """Triggered by FreeCAD selection events. Debounces rapid changes."""
         if not self._is_restoring:
             self.debounce_timer.start(50)  # Wait 50ms for events to settle
@@ -132,7 +136,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
             self._populate_current_tree()
 
     def _populate_current_tree(self):
-        """Updates the UI tree for the current selection tab."""
+        """Updates the UI tree for the current selection."""
         self.current_tree.clear()
         
         # Dictionary to track parent nodes so we can group cleanly
@@ -164,7 +168,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.btn_prev.setEnabled(bool(self.previous_selection))
 
     def showEvent(self, event):
-        """Forces the current selection tab to update the moment the panel is shown."""
+        """Forces the current selection view to update the moment the panel is shown."""
         self._populate_current_tree()
         super().showEvent(event)
 
@@ -225,7 +229,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
                 
         # Fire manually since we paused observer callbacks
         self._is_restoring = False
-        self.update_current_tab()
+        self.update_current_view()
 
     def delete_group(self):
         current_item = self.group_list.currentItem()
