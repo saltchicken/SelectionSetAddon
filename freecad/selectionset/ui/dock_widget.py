@@ -56,6 +56,11 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
         # --- SECTION 1: CURRENT SELECTION ---
         self.group_current = QtWidgets.QGroupBox("Current Selection")
+        
+        # Make the header clickable (toggleable) and default to shown
+        self.group_current.setCheckable(True)
+        self.group_current.setChecked(True)
+        
         self.layout_current = QtWidgets.QVBoxLayout(self.group_current)
         self.layout_current.setContentsMargins(8, 12, 8, 8)
         self.layout_current.setSpacing(8)
@@ -65,6 +70,9 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.layout_current.addWidget(self.current_tree)
         
         self.main_layout.addWidget(self.group_current)
+        
+        # Connect the header toggle to hide/show the tree widget
+        self.group_current.toggled.connect(self.current_tree.setVisible)
 
         # --- SECTION 2: SAVED GROUPS ---
         self.group_saved = QtWidgets.QGroupBox("Saved Groups")
