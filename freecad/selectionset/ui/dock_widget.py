@@ -1,3 +1,4 @@
+import json
 import FreeCAD as App
 import FreeCADGui as Gui
 
@@ -171,6 +172,32 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_view)
 
+        # Load persisted selection sets upon initialization
+        self._load_groups()
+
+    # --- Persistence Handlers ---
+    def _get_param_group(self):
+        """Returns the FreeCAD parameter group for this addon."""
+        return App.ParamGet("User parameter:BaseApp/Preferences/Mod/SelectionSet")
+
+    def _load_groups(self):
+        """Loads saved groups from FreeCAD's configuration parameters."""
+        param = self._get_param_group()
+        groups_json = param.GetString("SavedGroups", "{}")
+        try:
+            self.saved_groups = json.loads(groups_json)
+            # Populate the UI list with the restored keys
+            for name in self.saved_groups:
+                self.group_list.addItem(name)
+        except Exception as e:
+            print(f"SelectionSet: Failed to load saved groups - {e}")
+            self.saved_groups = {}
+
+    def _save_groups(self):
+        """Saves current groups to FreeCAD's configuration parameters."""
+        param = self._get_param_group()
+        param.SetString("SavedGroups", json.dumps(self.saved_groups))
+
     # --- Lifecycle Hooks to Manage the Observer ---
     def showEvent(self, event):
         """Hook into panel display to activate observer and refresh UI."""
@@ -290,6 +317,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
             if name not in self.saved_groups:
                 self.group_list.addItem(name)
             self.saved_groups[name] = group_data
+            self._save_groups()
 
     def restore_group(self):
         current_item = self.group_list.currentItem()
@@ -326,6 +354,7 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         if ok and new_name and new_name != old_name:
             self.saved_groups[new_name] = self.saved_groups.pop(old_name)
             item.setText(new_name)
+            self._save_groups()
 
     def update_group_item(self, item):
         sel_ex = Gui.Selection.getSelectionEx()
@@ -337,9 +366,11 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         group_data = [(sel.ObjectName, tuple(sel.SubElementNames)) for sel in sel_ex]
         self.saved_groups[name] = group_data
         print(f"SelectionSet: Updated group '{name}' with current selection.")
+        self._save_groups()
 
     def delete_group_item(self, item):
         name = item.text()
         if name in self.saved_groups:
             del self.saved_groups[name]
         self.group_list.takeItem(self.group_list.row(item))
+        self._save_groups()
