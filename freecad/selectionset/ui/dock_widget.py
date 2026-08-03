@@ -87,12 +87,13 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.setObjectName("AdvancedSelectionDock")
         self.saved_groups = {}
 
-        # State tracking for "Previous Selection"
+        # State tracking for "Previous Selection" (Now tracks by active document)
         self.previous_selection = []
         self.current_selection_state = []
         self._is_restoring = False
+        self._observer_active = False
 
-        # Timer to debounce rapid FreeCAD selection events (like clear -> add)
+        # Timer to debounce rapid FreeCAD selection events
         self.debounce_timer = QtCore.QTimer()
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self._handle_selection_settled)
@@ -125,16 +126,23 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.current_tree.setHeaderHidden(True)
         self.group_current.addWidget(self.current_tree)
         
+        # Clear Selection Button
+        self.btn_clear = QtWidgets.QPushButton("Clear All")
+        self.btn_clear.clicked.connect(lambda: Gui.Selection.clearSelection())
+        self.group_current.addWidget(self.btn_clear)
+        
         self.main_layout.addWidget(self.group_current)
 
         # --- SECTION 2: SAVED GROUPS ---
         self.group_saved = CollapsibleSection("Saved Groups")
         
         self.group_list = QtWidgets.QListWidget()
+        self.group_list.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.group_list.customContextMenuRequested.connect(self.show_context_menu)
+        self.group_list.itemDoubleClicked.connect(lambda: self.restore_group())
         self.group_saved.addWidget(self.group_list)
 
         # --- SECTION 3: ACTION BUTTONS ---
-        # Wrap the layout in a QWidget so we can add it to the collapsible section
         self.buttons_widget = QtWidgets.QWidget()
         self.buttons_layout = QtWidgets.QHBoxLayout(self.buttons_widget)
         self.buttons_layout.setContentsMargins(0, 0, 0, 0)
@@ -152,10 +160,6 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.btn_restore.clicked.connect(self.restore_group)
         self.buttons_layout.addWidget(self.btn_restore)
 
-        self.btn_delete = QtWidgets.QPushButton("Delete")
-        self.btn_delete.clicked.connect(self.delete_group)
-        self.buttons_layout.addWidget(self.btn_delete)
-
         # Add the unified button widget to the Saved Groups section
         self.group_saved.addWidget(self.buttons_widget)
         
@@ -166,24 +170,45 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_view)
-        Gui.Selection.addObserver(self.observer)
-        self._handle_selection_settled()
 
+    # --- Lifecycle Hooks to Manage the Observer ---
+    def showEvent(self, event):
+        """Hook into panel display to activate observer and refresh UI."""
+        if not self._observer_active:
+            Gui.Selection.addObserver(self.observer)
+            self._observer_active = True
+        self._handle_selection_settled()
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        """Cleanup when panel is hidden via X or toggle command."""
+        if self._observer_active:
+            Gui.Selection.removeObserver(self.observer)
+            self._observer_active = False
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        """Failsafe cleanup if the widget is actually destroyed."""
+        if self._observer_active:
+            Gui.Selection.removeObserver(self.observer)
+            self._observer_active = False
+        super().closeEvent(event)
+
+    # --- Selection Handling ---
     def update_current_view(self):
         """Triggered by FreeCAD selection events. Debounces rapid changes."""
         if not self._is_restoring:
-            self.debounce_timer.start(50)  # Wait 50ms for events to settle
+            self.debounce_timer.start(50)
 
     def _handle_selection_settled(self):
         """Called when selection changes have completed their firing cycle."""
         sel_ex = Gui.Selection.getSelectionEx()
 
-        # Enforce tuple for SubElementNames to ensure exact equality checks work
-        new_state = [(sel.DocumentName, sel.ObjectName,
-                      tuple(sel.SubElementNames)) for sel in sel_ex]
+        # Track independently of document name so it persists across "Save As"
+        new_state = [(sel.ObjectName, tuple(sel.SubElementNames)) for sel in sel_ex]
 
         if new_state != self.current_selection_state:
-            # Only save the previous selection if it contained items (prevents losing history on clear)
+            # Only save the previous selection if it contained items
             if self.current_selection_state:
                 self.previous_selection = self.current_selection_state
             self.current_selection_state = new_state
@@ -194,79 +219,74 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
     def _populate_current_tree(self):
         """Updates the UI tree for the current selection."""
         self.current_tree.clear()
+        obj_nodes = {}
 
-        # Dictionary to track parent nodes so we can group cleanly
-        # Structure: { "DocName": { "item": QTreeWidgetItem, "objs": { "ObjName": QTreeWidgetItem } } }
-        doc_nodes = {}
-
-        for doc_name, obj_name, sub_names in self.current_selection_state:
-            # 1. Get or create Document Node
-            if doc_name not in doc_nodes:
-                doc_item = QtWidgets.QTreeWidgetItem(self.current_tree,
-                                                     [doc_name])
-                doc_item.setExpanded(True)
-                doc_nodes[doc_name] = {'item': doc_item, 'objs': {}}
-
-            doc_data = doc_nodes[doc_name]
-
-            # 2. Get or create Object Node
-            if obj_name not in doc_data['objs']:
-                obj_item = QtWidgets.QTreeWidgetItem(doc_data['item'],
-                                                     [obj_name])
+        for obj_name, sub_names in self.current_selection_state:
+            if obj_name not in obj_nodes:
+                obj_item = QtWidgets.QTreeWidgetItem(self.current_tree, [obj_name])
                 obj_item.setExpanded(True)
-                doc_data['objs'][obj_name] = obj_item
+                obj_nodes[obj_name] = obj_item
 
-            obj_item = doc_data['objs'][obj_name]
+            obj_item = obj_nodes[obj_name]
 
-            # 3. Add SubElements (Faces, Edges, Vertices) as leaf nodes
             if sub_names:
                 for sub in sub_names:
                     QtWidgets.QTreeWidgetItem(obj_item, [sub])
 
         self.btn_prev.setEnabled(bool(self.previous_selection))
 
-    def showEvent(self, event):
-        """Forces the current selection view to update the moment the panel is shown."""
-        self._populate_current_tree()
-        super().showEvent(event)
+    # --- Selection State Restorations ---
+    def _apply_selection_state(self, state_data):
+        """Helper to cleanly apply a selection state to the Active Document"""
+        doc = App.ActiveDocument
+        if not doc:
+            QtWidgets.QMessageBox.warning(self, "No Document", "No active document found to restore selection.")
+            return False
+
+        self._is_restoring = True
+        Gui.Selection.clearSelection()
+
+        for obj_name, sub_names in state_data:
+            # Verify object still exists in the active document
+            if not doc.getObject(obj_name):
+                print(f"SelectionSet: Object '{obj_name}' missing in active document. Skipping.")
+                continue
+
+            if sub_names:
+                for sub in sub_names:
+                    Gui.Selection.addSelection(doc.Name, obj_name, sub)
+            else:
+                Gui.Selection.addSelection(doc.Name, obj_name)
+
+        # Trigger a manual UI update and release block
+        self._is_restoring = False
+        self.update_current_view()
+        return True
 
     def restore_previous_selection(self):
-        """Restores the last known valid selection and swaps state to enable toggling."""
+        """Restores the last known valid selection and swaps state."""
         if not self.previous_selection:
             return
 
-        self._is_restoring = True
+        if self._apply_selection_state(self.previous_selection):
+            # Swap current and previous states to allow toggling back and forth
+            temp = self.current_selection_state
+            self.current_selection_state = self.previous_selection
+            self.previous_selection = temp
+            
+            if self.isVisible():
+                self._populate_current_tree()
 
-        Gui.Selection.clearSelection()
-        for doc_name, obj_name, sub_names in self.previous_selection:
-            if sub_names:
-                for sub in sub_names:
-                    Gui.Selection.addSelection(doc_name, obj_name, sub)
-            else:
-                Gui.Selection.addSelection(doc_name, obj_name)
-
-        # Swap current and previous states so the user can repeatedly toggle between the two
-        temp = self.current_selection_state
-        self.current_selection_state = self.previous_selection
-        self.previous_selection = temp
-
-        if self.isVisible():
-            self._populate_current_tree()
-
-        self._is_restoring = False
-
+    # --- Saved Groups Logic ---
     def save_group(self):
         sel_ex = Gui.Selection.getSelectionEx()
         if not sel_ex:
-            QtWidgets.QMessageBox.warning(self, "Empty Selection",
-                                          "Select something first.")
+            QtWidgets.QMessageBox.warning(self, "Empty Selection", "Select something first.")
             return
 
-        name, ok = QtWidgets.QInputDialog.getText(self, "Save Selection",
-                                                  "Enter group name:")
+        name, ok = QtWidgets.QInputDialog.getText(self, "Save Selection", "Enter group name:")
         if ok and name:
-            group_data = [(sel.DocumentName, sel.ObjectName,
-                           sel.SubElementNames) for sel in sel_ex]
+            group_data = [(sel.ObjectName, tuple(sel.SubElementNames)) for sel in sel_ex]
             if name not in self.saved_groups:
                 self.group_list.addItem(name)
             self.saved_groups[name] = group_data
@@ -278,26 +298,48 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
         name = current_item.text()
         group_data = self.saved_groups.get(name, [])
+        self._apply_selection_state(group_data)
 
-        self._is_restoring = True
-        Gui.Selection.clearSelection()
-        for doc_name, obj_name, sub_names in group_data:
-            if sub_names:
-                for sub in sub_names:
-                    Gui.Selection.addSelection(doc_name, obj_name, sub)
-            else:
-                Gui.Selection.addSelection(doc_name, obj_name)
-
-        # Fire manually since we paused observer callbacks
-        self._is_restoring = False
-        self.update_current_view()
-
-    def delete_group(self):
-        current_item = self.group_list.currentItem()
-        if not current_item:
+    # --- Context Menu Handling ---
+    def show_context_menu(self, position):
+        item = self.group_list.itemAt(position)
+        if not item:
             return
 
-        name = current_item.text()
+        menu = QtWidgets.QMenu()
+        rename_action = menu.addAction("Rename")
+        update_action = menu.addAction("Update with Current Selection")
+        delete_action = menu.addAction("Delete")
+
+        action = menu.exec_(self.group_list.mapToGlobal(position))
+
+        if action == rename_action:
+            self.rename_group_item(item)
+        elif action == update_action:
+            self.update_group_item(item)
+        elif action == delete_action:
+            self.delete_group_item(item)
+
+    def rename_group_item(self, item):
+        old_name = item.text()
+        new_name, ok = QtWidgets.QInputDialog.getText(self, "Rename Group", "New name:", text=old_name)
+        if ok and new_name and new_name != old_name:
+            self.saved_groups[new_name] = self.saved_groups.pop(old_name)
+            item.setText(new_name)
+
+    def update_group_item(self, item):
+        sel_ex = Gui.Selection.getSelectionEx()
+        if not sel_ex:
+            QtWidgets.QMessageBox.warning(self, "Empty Selection", "Make a selection in FreeCAD first to update this group.")
+            return
+            
+        name = item.text()
+        group_data = [(sel.ObjectName, tuple(sel.SubElementNames)) for sel in sel_ex]
+        self.saved_groups[name] = group_data
+        print(f"SelectionSet: Updated group '{name}' with current selection.")
+
+    def delete_group_item(self, item):
+        name = item.text()
         if name in self.saved_groups:
             del self.saved_groups[name]
-        self.group_list.takeItem(self.group_list.row(current_item))
+        self.group_list.takeItem(self.group_list.row(item))
