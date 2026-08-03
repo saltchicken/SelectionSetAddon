@@ -80,6 +80,15 @@ class CollapsibleSection(QtWidgets.QWidget):
         self.content_layout.addWidget(widget)
 
 
+class HighlightTreeWidget(QtWidgets.QTreeWidget):
+    """Custom TreeWidget that clears its selection when losing focus."""
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        # Clearing selection here triggers the cleanup of the purple highlight 
+        # and flawlessly restores the FreeCAD selection so tools work normally.
+        self.clearSelection()
+
+
 class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
     def __init__(self):
@@ -88,11 +97,16 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.setObjectName("AdvancedSelectionDock")
         self.saved_groups = {}
 
-        # State tracking for "Previous Selection" (Now tracks by active document)
+        # State tracking
         self.previous_selection = []
         self.current_selection_state = []
         self._is_restoring = False
         self._observer_active = False
+        
+        # State tracking for temporary highlight
+        self.temp_highlight_name = None
+        self._highlight_active = False
+        self.shape_cache = {}
 
         # Timer to debounce rapid FreeCAD selection events
         self.debounce_timer = QtCore.QTimer()
@@ -123,8 +137,10 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         # --- SECTION 1: CURRENT SELECTION ---
         self.group_current = CollapsibleSection("Current Selection")
         
-        self.current_tree = QtWidgets.QTreeWidget()
+        # Use our custom tree widget
+        self.current_tree = HighlightTreeWidget()
         self.current_tree.setHeaderHidden(True)
+        self.current_tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         self.group_current.addWidget(self.current_tree)
         
         # Clear Selection Button
@@ -161,32 +177,23 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         self.btn_restore.clicked.connect(self.restore_group)
         self.buttons_layout.addWidget(self.btn_restore)
 
-        # Add the unified button widget to the Saved Groups section
         self.group_saved.addWidget(self.buttons_widget)
-        
         self.main_layout.addWidget(self.group_saved)
-
-        # Push everything to the top when space allows
         self.main_layout.addStretch()
 
         # === INITIALIZE OBSERVER ===
         self.observer = SelectionObserver(self.update_current_view)
-
-        # Load persisted selection sets upon initialization
         self._load_groups()
 
     # --- Persistence Handlers ---
     def _get_param_group(self):
-        """Returns the FreeCAD parameter group for this addon."""
         return App.ParamGet("User parameter:BaseApp/Preferences/Mod/SelectionSet")
 
     def _load_groups(self):
-        """Loads saved groups from FreeCAD's configuration parameters."""
         param = self._get_param_group()
         groups_json = param.GetString("SavedGroups", "{}")
         try:
             self.saved_groups = json.loads(groups_json)
-            # Populate the UI list with the restored keys
             for name in self.saved_groups:
                 self.group_list.addItem(name)
         except Exception as e:
@@ -194,13 +201,101 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
             self.saved_groups = {}
 
     def _save_groups(self):
-        """Saves current groups to FreeCAD's configuration parameters."""
         param = self._get_param_group()
         param.SetString("SavedGroups", json.dumps(self.saved_groups))
 
+    # --- Highlight Logic ---
+    def _clear_highlight(self):
+        """Cleans up the temporary purple highlight object."""
+        if self.temp_highlight_name:
+            doc = App.ActiveDocument
+            if doc:
+                obj = doc.getObject(self.temp_highlight_name)
+                if obj:
+                    doc.removeObject(self.temp_highlight_name)
+            self.temp_highlight_name = None
+
+    def _restore_real_selection(self):
+        """Puts the underlying FreeCAD selection back in place after scrubbing finishes."""
+        doc = App.ActiveDocument
+        if not doc:
+            return
+            
+        self._is_restoring = True
+        Gui.Selection.clearSelection()
+        
+        for obj_name, sub_names in self.current_selection_state:
+            if sub_names:
+                for sub in sub_names:
+                    Gui.Selection.addSelection(doc.Name, obj_name, sub)
+            else:
+                Gui.Selection.addSelection(doc.Name, obj_name)
+                
+        self._is_restoring = False
+
+    def _on_tree_selection_changed(self):
+        """Highlights the selected item in the 3D view temporarily."""
+        selected_items = self.current_tree.selectedItems()
+        
+        # Scenario 1: Focus lost or tree clicked empty. Cleanup & restore state.
+        if not selected_items:
+            self._clear_highlight()
+            if self._highlight_active:
+                self._restore_real_selection()
+                self._highlight_active = False
+            return
+
+        # Scenario 2: Item clicked. Hide FreeCAD's selection so purple stands alone.
+        if not self._highlight_active:
+            self._is_restoring = True
+            Gui.Selection.clearSelection()
+            self._is_restoring = False
+            self._highlight_active = True
+
+        self._clear_highlight()
+
+        item = selected_items[0]
+        parent = item.parent()
+        if not parent:
+            obj_name = item.text(0)
+            sub_name = None
+        else:
+            obj_name = parent.text(0)
+            sub_name = item.text(0)
+
+        # Retrieve the exact geometry shape from our cache
+        target_shape = self.shape_cache.get((obj_name, sub_name))
+
+        if target_shape:
+            doc = App.ActiveDocument
+            if not doc:
+                return
+                
+            temp_obj = doc.addObject("Part::Feature", "SelectionHighlight_Temp")
+            temp_obj.Label = "SelectionHighlight_Temp"
+            
+            try:
+                temp_obj.Shape = target_shape
+            except Exception:
+                doc.removeObject(temp_obj.Name)
+                return
+            
+            if hasattr(temp_obj, "ViewObject") and temp_obj.ViewObject:
+                temp_obj.ViewObject.Selectable = False
+                
+                purple = (0.7, 0.0, 1.0)
+                temp_obj.ViewObject.LineColor = purple
+                temp_obj.ViewObject.PointColor = purple
+                temp_obj.ViewObject.ShapeColor = purple
+                
+                temp_obj.ViewObject.LineWidth = 4.0
+                temp_obj.ViewObject.PointSize = 8.0
+                temp_obj.ViewObject.Transparency = 20
+            
+            self.temp_highlight_name = temp_obj.Name
+
     # --- Lifecycle Hooks to Manage the Observer ---
     def showEvent(self, event):
-        """Hook into panel display to activate observer and refresh UI."""
         if not self._observer_active:
             Gui.Selection.addObserver(self.observer)
             self._observer_active = True
@@ -208,14 +303,14 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         super().showEvent(event)
 
     def hideEvent(self, event):
-        """Cleanup when panel is hidden via X or toggle command."""
+        self._clear_highlight()
         if self._observer_active:
             Gui.Selection.removeObserver(self.observer)
             self._observer_active = False
         super().hideEvent(event)
 
     def closeEvent(self, event):
-        """Failsafe cleanup if the widget is actually destroyed."""
+        self._clear_highlight()
         if self._observer_active:
             Gui.Selection.removeObserver(self.observer)
             self._observer_active = False
@@ -223,19 +318,17 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
 
     # --- Selection Handling ---
     def update_current_view(self):
-        """Triggered by FreeCAD selection events. Debounces rapid changes."""
         if not self._is_restoring:
             self.debounce_timer.start(50)
 
     def _handle_selection_settled(self):
-        """Called when selection changes have completed their firing cycle."""
+        self._clear_highlight()
+        self._highlight_active = False  # Reset in case selection legitimately changed via 3D view
+        
         sel_ex = Gui.Selection.getSelectionEx()
-
-        # Track independently of document name so it persists across "Save As"
         new_state = [(sel.ObjectName, tuple(sel.SubElementNames)) for sel in sel_ex]
 
         if new_state != self.current_selection_state:
-            # Only save the previous selection if it contained items
             if self.current_selection_state:
                 self.previous_selection = self.current_selection_state
             self.current_selection_state = new_state
@@ -244,27 +337,36 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
             self._populate_current_tree()
 
     def _populate_current_tree(self):
-        """Updates the UI tree for the current selection."""
+        self.current_tree.itemSelectionChanged.disconnect(self._on_tree_selection_changed)
         self.current_tree.clear()
+        self.shape_cache.clear()
+        
         obj_nodes = {}
+        sel_ex = Gui.Selection.getSelectionEx()
 
-        for obj_name, sub_names in self.current_selection_state:
+        for sel in sel_ex:
+            obj_name = sel.ObjectName
             if obj_name not in obj_nodes:
                 obj_item = QtWidgets.QTreeWidgetItem(self.current_tree, [obj_name])
                 obj_item.setExpanded(True)
                 obj_nodes[obj_name] = obj_item
+                
+                if hasattr(sel.Object, "Shape"):
+                    self.shape_cache[(obj_name, None)] = sel.Object.Shape
 
             obj_item = obj_nodes[obj_name]
 
-            if sub_names:
-                for sub in sub_names:
-                    QtWidgets.QTreeWidgetItem(obj_item, [sub])
+            if sel.HasSubObjects:
+                for idx, sub_name in enumerate(sel.SubElementNames):
+                    QtWidgets.QTreeWidgetItem(obj_item, [sub_name])
+                    if len(sel.SubObjects) > idx:
+                        self.shape_cache[(obj_name, sub_name)] = sel.SubObjects[idx]
 
         self.btn_prev.setEnabled(bool(self.previous_selection))
+        self.current_tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
 
     # --- Selection State Restorations ---
     def _apply_selection_state(self, state_data):
-        """Helper to cleanly apply a selection state to the Active Document"""
         doc = App.ActiveDocument
         if not doc:
             QtWidgets.QMessageBox.warning(self, "No Document", "No active document found to restore selection.")
@@ -274,7 +376,6 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
         Gui.Selection.clearSelection()
 
         for obj_name, sub_names in state_data:
-            # Verify object still exists in the active document
             if not doc.getObject(obj_name):
                 print(f"SelectionSet: Object '{obj_name}' missing in active document. Skipping.")
                 continue
@@ -285,24 +386,18 @@ class AdvancedSelectionDock(QtWidgets.QDockWidget):
             else:
                 Gui.Selection.addSelection(doc.Name, obj_name)
 
-        # Trigger a manual UI update and release block
         self._is_restoring = False
         self.update_current_view()
         return True
 
     def restore_previous_selection(self):
-        """Restores the last known valid selection and swaps state."""
         if not self.previous_selection:
             return
 
         if self._apply_selection_state(self.previous_selection):
-            # Swap current and previous states to allow toggling back and forth
             temp = self.current_selection_state
             self.current_selection_state = self.previous_selection
             self.previous_selection = temp
-            
-            if self.isVisible():
-                self._populate_current_tree()
 
     # --- Saved Groups Logic ---
     def save_group(self):
